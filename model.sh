@@ -1,6 +1,6 @@
 #!/bin/bash
 
-TARGET_DIR="/workspace/stable-diffusion-sd/models/StableDifussion"
+TARGET_DIR="/workspace/stable-diffusion-webui/models/Stable-diffusion/"
 OUTPUT_FILE="$TARGET_DIR/model.safetensors"
 URL="https://civitai.com/api/download/models/2146693?token=acec63d48485726b61aa758b49a415d4"
 
