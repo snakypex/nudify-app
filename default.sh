@@ -15,7 +15,7 @@ PIP_PACKAGES=(
 )
 
 CHECKPOINT_MODELS=(
-    "https://civitai.com/api/download/models/2146693?type=Model&format=SafeTensor&size=full&fp=fp16"
+    "https://huggingface.co/snakypex/nudify-app/resolve/main/pornmaster_proSDXLV7-inpainting.safetensors"
 )
 
 UNET_MODELS=(
