@@ -59,12 +59,15 @@ class NudifyProcessor:
         self.work_dir.mkdir(exist_ok=True)
 
     def _load_segmentation_model(self):
-        """Charge le modèle de segmentation une seule fois."""
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = AutoModelForSemanticSegmentation.from_pretrained("sayeed99/segformer_b3_clothes")
         model.eval()
         model.to(device)
-        logger.info(f"Modèle de segmentation chargé sur: {device}")
+
+        # Compilation pour accélération
+        if hasattr(torch, 'compile'):
+            model = torch.compile(model, mode="reduce-overhead")
+
         return model
 
     @staticmethod
