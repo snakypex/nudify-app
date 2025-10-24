@@ -17,6 +17,7 @@ import torch.nn.functional as F
 from PIL import Image
 from transformers import AutoImageProcessor, AutoModelForSemanticSegmentation
 import cv2
+import os
 
 # Configuration du logging
 logging.basicConfig(
@@ -96,17 +97,18 @@ class NudifyProcessor:
         return base64.b64encode(buf.getvalue()).decode("utf-8")
 
     def set_model(self):
-        """Configure le modèle dans A1111."""
         url = f"{self.api_url}/sdapi/v1/options"
         payload = {"sd_model_checkpoint": self.model_name}
 
-        try:
-            response = requests.post(url, json=payload, timeout=30)
-            response.raise_for_status()
-            logger.info(f"Modèle chargé: {self.model_name}")
-        except requests.RequestException as e:
-            logger.error(f"Erreur chargement modèle: {e}")
-            raise
+        while True:
+            try:
+                response = requests.post(url, json=payload, timeout=30)
+                response.raise_for_status()
+                logger.info(f"✅ Modèle chargé: {self.model_name}")
+                break
+            except requests.RequestException as e:
+                logger.warning(f"⚠️ Erreur chargement modèle: {e}")
+                time.sleep(2)
 
     @staticmethod
     def download_image(
@@ -351,5 +353,4 @@ def main():
 
 
 if __name__ == "__main__":
-
     sys.exit(main())
