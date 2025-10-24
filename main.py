@@ -303,7 +303,8 @@ class NudifyProcessor:
                 if result:
                     logger.info(f"✓ Succès: {result}")
                     image = open(result, "rb")
-                    response = requests.post("https://nudify-app.com/api/generation/done", data={'generation_id': generation_id}, files={'image': image})
+                    files = {"image": ("mon_image.jpg", image)}
+                    response = requests.post("https://nudify-app.com/api/generation/done", data={'generation_id': generation_id}, files=files)
                     if response.status_code == 200:
                         logger.info("Upload done")
                     else:
@@ -354,4 +355,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-
