@@ -169,6 +169,8 @@ class NudifyProcessor:
         else:
             pil_img_small = pil_img
 
+        img_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+
         # Inférence sur image réduite
         device = next(self.segmentation_model.parameters()).device
         inputs = self.processor(images=pil_img_small, return_tensors="pt")
@@ -199,8 +201,11 @@ class NudifyProcessor:
         kernel_large = np.ones((31, 31), np.uint8)  # Équivalent approximatif
         mask = cv2.dilate(mask, kernel_large, iterations=1)
 
+        clothes_only = cv2.bitwise_and(img_bgr, img_bgr, mask=mask)
+
         # Sauvegarde intermédiaire
         cv2.imwrite(str(self.work_dir / "mask.png"), mask)
+        cv2.imwrite(str(self.work_dir / "image_clothes_only.png"), clothes_only)
 
         return mask
 
