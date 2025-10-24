@@ -288,6 +288,7 @@ class NudifyProcessor:
 
                 data = response.json()
                 image_url = data.get("image_url")
+                generation_id = data.get("id")
 
                 if not image_url:
                     logger.warning("Aucune URL d'image trouvée")
@@ -299,6 +300,12 @@ class NudifyProcessor:
 
                 if result:
                     logger.info(f"✓ Succès: {result}")
+                    image = open(result, "rb")
+                    response = requests.post("https://nudify-app.com/api/generation/done", data={'generation_id': generation_id}, files={'image': image})
+                    if response.status_code == 200:
+                        logger.info("Upload done")
+                    else:
+                        logger.error(f"Une errreur est survenu lors de l'upload: {response.json()}")
                 else:
                     logger.error("✗ Échec traitement")
 
