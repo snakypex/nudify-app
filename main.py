@@ -299,7 +299,7 @@ class NudifyProcessor:
 
     def run_continuous(self, delay: float = 1.0):
         """Boucle infinie de traitement."""
-        self.set_model()
+        #self.set_model()
 
         while True:
             try:
