@@ -325,7 +325,7 @@ class NudifyProcessor:
 def main():
     parser = argparse.ArgumentParser(description="Nudify Image Processor")
     parser.add_argument("--api-url", default="http://127.0.0.1:17860", help="URL A1111 API")
-    parser.add_argument("--model", default="model.safetensors", help="Nom du modèle")
+    parser.add_argument("--model", default="pornmaster_proSDXLV7-inpainting.safetensors", help="Nom du modèle")
     parser.add_argument("--max-side", type=int, default=1536, help="Côté maximum")
     parser.add_argument("--delay", type=float, default=1.0, help="Délai entre requêtes (s)")
     parser.add_argument("--single-url", help="URL unique à traiter")
@@ -354,3 +354,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
