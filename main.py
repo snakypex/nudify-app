@@ -60,8 +60,11 @@ class NudifyProcessor:
 
     def _load_segmentation_model(self):
         """Charge le modèle de segmentation une seule fois."""
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = AutoModelForSemanticSegmentation.from_pretrained("sayeed99/segformer_b3_clothes")
         model.eval()
+        model.to(device)
+        logger.info(f"Modèle de segmentation chargé sur: {device}")
         return model
 
     @staticmethod
@@ -153,31 +156,48 @@ class NudifyProcessor:
 
         return out_path
 
-    def generate_clothing_mask(self, image_path: Path) -> np.ndarray:
+    def generate_clothing_mask(self, image_path: Path, seg_max_size: int = 512) -> np.ndarray:
         """Génère le masque des vêtements."""
-        # Chargement image
         pil_img = Image.open(image_path).convert("RGB")
-        img_array = np.array(pil_img)
-        h, w = pil_img.size
+        original_size = pil_img.size
 
-        # Inférence
-        inputs = self.processor(images=pil_img, return_tensors="pt")
+        # Réduire temporairement pour l'inférence
+        if max(original_size) > seg_max_size:
+            scale = seg_max_size / max(original_size)
+            new_size = (int(original_size[0] * scale), int(original_size[1] * scale))
+            pil_img_small = pil_img.resize(new_size, Image.LANCZOS)
+        else:
+            pil_img_small = pil_img
+
+        # Inférence sur image réduite
+        device = next(self.segmentation_model.parameters()).device
+        inputs = self.processor(images=pil_img_small, return_tensors="pt")
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+
         with torch.inference_mode():
             outputs = self.segmentation_model(**inputs)
 
-        # Upsampling et prédiction
+        # Upsampling directement à la taille originale
         logits = outputs.logits
-        upsampled = F.interpolate(logits, size=(h, w), mode="bilinear", align_corners=False)
+        upsampled = F.interpolate(
+            logits,
+            size=(original_size[1], original_size[0]),  # height, width
+            mode="bilinear",
+            align_corners=False
+        )
         pred = upsampled.argmax(dim=1)[0].cpu().numpy()
 
         # Classes vêtements (hauts, robe, manteau, pantalon, etc.)
         clothing_ids = {4, 5, 6, 7}
         mask = np.isin(pred, list(clothing_ids)).astype(np.uint8) * 255
 
-        # Nettoyage morphologique
-        kernel = np.ones((3, 3), np.uint8)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_DILATE, kernel, iterations=30)
+        # Au lieu de iterations=30 avec kernel 3x3
+        kernel_small = np.ones((3, 3), np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_small, iterations=2)
+
+        # Un seul passage avec un gros noyau
+        kernel_large = np.ones((31, 31), np.uint8)  # Équivalent approximatif
+        mask = cv2.dilate(mask, kernel_large, iterations=1)
 
         # Sauvegarde intermédiaire
         cv2.imwrite(str(self.work_dir / "mask.png"), mask)
