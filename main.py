@@ -35,8 +35,8 @@ class NudifyProcessor:
     def __init__(
             self,
             api_url: str = "http://127.0.0.1:7860",
-            nudify_api_url: str = "https://nudify-app.com/api/getNextGeneration",
-            bearer_token: str = "ferghtezfgdhy'e",
+            nudify_api_url: str = "https://nudify-app.com/api/generation/next",
+            bearer_token: str = os.getenv("NUDIFY_TOKEN"),
             model_name: str = "model.safetensors",
             max_side: int = 1536
     ):
@@ -344,4 +344,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     sys.exit(main())
