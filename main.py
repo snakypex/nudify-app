@@ -303,7 +303,7 @@ class NudifyProcessor:
                 if result:
                     logger.info(f"✓ Succès: {result}")
                     image = open(result, "rb")
-                    files = {"image": ("mon_image.jpg", image)}
+                    files = {"image": ("mon_image.jpg", image, "image/png")}
                     response = requests.post("https://nudify-app.com/api/generation/done", data={'generation_id': generation_id}, files=files)
                     if response.status_code == 200:
                         logger.info(f"Upload done {response.json()}")
