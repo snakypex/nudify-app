@@ -443,10 +443,10 @@ class NudifyProcessor:
             #Dernier Upscale
             # Essayer l'upscaling via API d'abord
             try:
-                result_path = self.upscale_image_esrgan(img_path)
+                result_path = self.upscale_image_esrgan(result_path)
             except Exception as e:
                 logger.warning(f"Upscaling API échoué, utilisation méthode basique: {e}")
-                result_path = self.upscale_image_basic(img_path)
+                result_path = self.upscale_image_basic(result_path)
 
             return result_path
 
