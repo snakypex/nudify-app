@@ -41,7 +41,9 @@ class NudifyProcessor:
             model_name: str = "model.safetensors",
             max_side: int = 1536,
             min_quality_size: int = 768,
-            upscale_factor: int = 2
+            upscale_factor: int = 2,
+            final_upscale: bool = True,
+            final_upscale_factor: int = 2
     ):
         self.api_url = api_url.rstrip('/')
         self.nudify_api_url = nudify_api_url
@@ -50,6 +52,8 @@ class NudifyProcessor:
         self.max_side = max_side
         self.min_quality_size = min_quality_size
         self.upscale_factor = upscale_factor
+        self.final_upscale = final_upscale
+        self.final_upscale_factor = final_upscale_factor
 
         # Modèle de segmentation chargé une seule fois
         self.segmentation_model = self._load_segmentation_model()
@@ -194,7 +198,48 @@ class NudifyProcessor:
             logger.error(f"Erreur lors de l'upscaling basique: {e}")
             return img_path
 
-    def preprocess_image(self, img_path: Path) -> Path:
+    def upscale_final_result(self, img_path: Path, upscale_factor: int = None) -> Path:
+        """Upscale le résultat final pour améliorer la qualité."""
+        if upscale_factor is None:
+            upscale_factor = self.final_upscale_factor
+
+        try:
+            img = Image.open(img_path).convert("RGB")
+            original_size = img.size
+            img_b64 = self.to_b64(img, "PNG")
+
+            payload = {
+                "resize_mode": 0,
+                "upscaling_resize": upscale_factor,
+                "upscaler_1": "R-ESRGAN 4x+",
+                "image": img_b64
+            }
+
+            endpoint = f"{self.api_url}/sdapi/v1/extra-single-image"
+            logger.info(f"🎨 Upscaling final de l'image avec facteur {upscale_factor}x...")
+
+            response = requests.post(endpoint, json=payload, timeout=300)
+            response.raise_for_status()
+
+            data = response.json()
+            if not data.get("image"):
+                raise ValueError("Aucune image upscalée retournée")
+
+            # Sauvegarder l'image upscalée finale
+            upscaled_bytes = base64.b64decode(data["image"])
+            timestamp = int(time.time())
+            final_path = self.work_dir / f"result_upscaled_{timestamp}.png"
+            final_path.write_bytes(upscaled_bytes)
+
+            upscaled_img = Image.open(final_path)
+            logger.info(f"✅ Image finale upscalée: {original_size} → {upscaled_img.size}")
+
+            return final_path
+
+        except Exception as e:
+            logger.error(f"Erreur lors de l'upscaling final: {e}")
+            logger.warning("Utilisation de l'image non-upscalée")
+            return img_path
         """Prétraite l'image: upscaling si nécessaire."""
         img = Image.open(img_path).convert("RGB")
 
@@ -394,7 +439,7 @@ class NudifyProcessor:
         return out_path
 
     def process_single_image(self, image_url: str) -> Optional[Path]:
-        """Traite une seule image de A à Z avec upscaling si nécessaire."""
+        """Traite une seule image de A à Z avec upscaling avant et après."""
         try:
             # 1. Téléchargement
             img_path = self.download_image(image_url, self.work_dir)
@@ -410,6 +455,11 @@ class NudifyProcessor:
 
             # 4. Inpainting
             result_path = self.generate_inpainted_image(processed_path, mask_path)
+
+            # 5. Upscaling final (optionnel)
+            if self.final_upscale:
+                logger.info("🎯 Application de l'upscaling final...")
+                result_path = self.upscale_final_result(result_path)
 
             return result_path
 
@@ -474,9 +524,14 @@ def main():
     parser.add_argument("--model", default="pornmaster_proSDXLV7-inpainting.safetensors", help="Nom du modèle")
     parser.add_argument("--max-side", type=int, default=1536, help="Côté maximum")
     parser.add_argument("--min-quality", type=int, default=768, help="Taille minimale pour bonne qualité")
-    parser.add_argument("--upscale-factor", type=int, default=2, choices=[2, 4], help="Facteur d'upscaling")
+    parser.add_argument("--upscale-factor", type=int, default=2, choices=[2, 4], help="Facteur d'upscaling initial")
+    parser.add_argument("--final-upscale", action="store_true", help="Activer l'upscaling final")
+    parser.add_argument("--no-final-upscale", dest="final_upscale", action="store_false",
+                        help="Désactiver l'upscaling final")
+    parser.add_argument("--final-upscale-factor", type=int, default=2, choices=[2, 4], help="Facteur d'upscaling final")
     parser.add_argument("--delay", type=float, default=1.0, help="Délai entre requêtes (s)")
     parser.add_argument("--single-url", help="URL unique à traiter")
+    parser.set_defaults(final_upscale=True)
 
     args = parser.parse_args()
 
@@ -485,7 +540,9 @@ def main():
         model_name=args.model,
         max_side=args.max_side,
         min_quality_size=args.min_quality,
-        upscale_factor=args.upscale_factor
+        upscale_factor=args.upscale_factor,
+        final_upscale=args.final_upscale,
+        final_upscale_factor=args.final_upscale_factor
     )
 
     if args.single_url:
