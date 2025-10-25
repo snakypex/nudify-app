@@ -365,10 +365,10 @@ class NudifyProcessor:
             "inpaint_full_res_padding": 32,
             "sampler_name": "DPM++ 3M SDE",
             "scheduler": "Karras",
-            "steps": 30,
+            "steps": 50,
             "width": w,
             "height": h,
-            "cfg_scale": 5,
+            "cfg_scale": 3,
             "denoising_strength": 1.0,
             "seed": -1,  # Aléatoire
             "n_iter": 1,
