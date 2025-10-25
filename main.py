@@ -368,7 +368,7 @@ class NudifyProcessor:
             "steps": 30,
             "width": w,
             "height": h,
-            "cfg_scale": 5,
+            "cfg_scale": 4,
             "denoising_strength": 1.0,
             "seed": -1,  # Aléatoire
             "n_iter": 1,
@@ -392,6 +392,35 @@ class NudifyProcessor:
 
         logger.info(f"Image générée: {out_path} ({w}x{h})")
         return out_path
+
+    def wait_for_api_ready(self, retry_delay: float = 1.0) -> bool:
+        """Attend que l'API A1111 soit disponible."""
+        url = f"{self.api_url}/sdapi/v1/sd-models"
+
+        logger.info("🔄 Vérification de la disponibilité de l'API A1111...")
+
+        while True:
+            try:
+                response = requests.get(url, timeout=10)
+                response.raise_for_status()
+
+                # Vérifier que la réponse est valide
+                data = response.json()
+                if isinstance(data, list):
+                    logger.info(f"✅ API A1111 disponible ! ({len(data)} modèles détectés)")
+                    return True
+
+            except requests.exceptions.ConnectionError:
+                logger.warning(f"⏳ API non disponible (connexion refusée)")
+            except requests.exceptions.Timeout:
+                logger.warning(f"⏳ API non disponible (timeout)")
+            except requests.RequestException as e:
+                logger.warning(f"⏳ Erreur API - {e}")
+            except Exception as e:
+                logger.warning(f"⏳ Erreur inattendue - {e}")
+
+            logger.info(f"⏰ Nouvelle tentative dans {retry_delay}s...")
+            time.sleep(retry_delay)
 
     def process_single_image(self, image_url: str) -> Optional[Path]:
         """Traite une seule image de A à Z avec upscaling si nécessaire."""
@@ -419,7 +448,10 @@ class NudifyProcessor:
 
     def run_continuous(self, delay: float = 1.0):
         """Boucle infinie de traitement."""
-        # self.set_model()
+        # Attendre que l'API soit prête avant de commencer
+        if not self.wait_for_api_ready():
+            logger.error("❌ Impossible de démarrer : API A1111 non disponible")
+            return
 
         while True:
             try:
@@ -504,5 +536,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
