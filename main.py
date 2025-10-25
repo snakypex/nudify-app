@@ -368,7 +368,7 @@ class NudifyProcessor:
             "steps": 30,
             "width": w,
             "height": h,
-            "cfg_scale": 1,
+            "cfg_scale": 5,
             "denoising_strength": 1.0,
             "seed": -1,  # Aléatoire
             "n_iter": 1,
@@ -504,4 +504,5 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
 
