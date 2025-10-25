@@ -368,7 +368,7 @@ class NudifyProcessor:
             "steps": 30,
             "width": w,
             "height": h,
-            "cfg_scale": 4,
+            "cfg_scale": 5,
             "denoising_strength": 1.0,
             "seed": -1,  # Aléatoire
             "n_iter": 1,
@@ -439,6 +439,14 @@ class NudifyProcessor:
 
             # 4. Inpainting
             result_path = self.generate_inpainted_image(processed_path, mask_path)
+
+            #Dernier Upscale
+            # Essayer l'upscaling via API d'abord
+            try:
+                result_path = self.upscale_image_esrgan(img_path)
+            except Exception as e:
+                logger.warning(f"Upscaling API échoué, utilisation méthode basique: {e}")
+                result_path = self.upscale_image_basic(img_path)
 
             return result_path
 
