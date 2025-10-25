@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 class NudifyProcessor:
-    """Classe principale pour le traitement d'images nudify."""
+    """Classe principale pour le traitement d'images nudify avec upscaling."""
 
     def __init__(
             self,
@@ -39,13 +39,17 @@ class NudifyProcessor:
             nudify_api_url: str = "https://nudify-app.com/api/generation/next",
             bearer_token: str = os.getenv("NUDIFY_TOKEN"),
             model_name: str = "model.safetensors",
-            max_side: int = 1536
+            max_side: int = 1536,
+            min_quality_size: int = 768,
+            upscale_factor: int = 2
     ):
         self.api_url = api_url.rstrip('/')
         self.nudify_api_url = nudify_api_url
         self.bearer_token = bearer_token
         self.model_name = model_name
         self.max_side = max_side
+        self.min_quality_size = min_quality_size
+        self.upscale_factor = upscale_factor
 
         # Modèle de segmentation chargé une seule fois
         self.segmentation_model = self._load_segmentation_model()
@@ -98,6 +102,114 @@ class NudifyProcessor:
         buf = io.BytesIO()
         img.save(buf, format=fmt)
         return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+    def needs_upscaling(self, img: Image.Image) -> bool:
+        """Détermine si l'image nécessite un upscaling."""
+        w, h = img.size
+        min_dim = min(w, h)
+        max_dim = max(w, h)
+
+        # Critères de qualité insuffisante
+        if min_dim < self.min_quality_size:
+            logger.info(f"Image trop petite ({w}x{h}), dimension minimale: {min_dim}px < {self.min_quality_size}px")
+            return True
+
+        # Vérifier le ratio de pixels totaux
+        total_pixels = w * h
+        min_pixels = self.min_quality_size * self.min_quality_size
+        if total_pixels < min_pixels:
+            logger.info(f"Résolution totale insuffisante: {total_pixels}px < {min_pixels}px")
+            return True
+
+        return False
+
+    def upscale_image_esrgan(self, img_path: Path) -> Path:
+        """Upscale l'image via l'API A1111 (ESRGAN ou autre upscaler)."""
+        try:
+            img = Image.open(img_path).convert("RGB")
+            img_b64 = self.to_b64(img, "PNG")
+
+            payload = {
+                "resize_mode": 0,
+                "upscaling_resize": self.upscale_factor,
+                "upscaler_1": "R-ESRGAN 4x+",  # ou "ESRGAN_4x", "Lanczos", etc.
+                "image": img_b64
+            }
+
+            endpoint = f"{self.api_url}/sdapi/v1/extra-single-image"
+            logger.info(f"Upscaling de l'image avec facteur {self.upscale_factor}x...")
+
+            response = requests.post(endpoint, json=payload, timeout=300)
+            response.raise_for_status()
+
+            data = response.json()
+            if not data.get("image"):
+                raise ValueError("Aucune image upscalée retournée")
+
+            # Sauvegarder l'image upscalée
+            upscaled_bytes = base64.b64decode(data["image"])
+            upscaled_path = self.work_dir / f"upscaled_{img_path.name}"
+            upscaled_path.write_bytes(upscaled_bytes)
+
+            upscaled_img = Image.open(upscaled_path)
+            logger.info(f"✅ Image upscalée: {img.size} → {upscaled_img.size}")
+
+            return upscaled_path
+
+        except Exception as e:
+            logger.error(f"Erreur lors de l'upscaling: {e}")
+            logger.warning("Utilisation de l'image originale")
+            return img_path
+
+    def upscale_image_basic(self, img_path: Path) -> Path:
+        """Upscale basique avec interpolation (si API indisponible)."""
+        try:
+            img = Image.open(img_path).convert("RGB")
+            w, h = img.size
+
+            new_w = w * self.upscale_factor
+            new_h = h * self.upscale_factor
+
+            # Interpolation bicubique de haute qualité
+            upscaled = img.resize((new_w, new_h), Image.BICUBIC)
+
+            # Appliquer un léger sharpening
+            upscaled_array = np.array(upscaled)
+            kernel = np.array([[-1, -1, -1],
+                               [-1, 9, -1],
+                               [-1, -1, -1]]) / 1.0
+
+            for c in range(3):
+                upscaled_array[:, :, c] = cv2.filter2D(upscaled_array[:, :, c], -1, kernel)
+
+            upscaled = Image.fromarray(np.clip(upscaled_array, 0, 255).astype(np.uint8))
+
+            upscaled_path = self.work_dir / f"upscaled_basic_{img_path.name}"
+            upscaled.save(upscaled_path)
+
+            logger.info(f"✅ Image upscalée (basique): {img.size} → {upscaled.size}")
+            return upscaled_path
+
+        except Exception as e:
+            logger.error(f"Erreur lors de l'upscaling basique: {e}")
+            return img_path
+
+    def preprocess_image(self, img_path: Path) -> Path:
+        """Prétraite l'image: upscaling si nécessaire."""
+        img = Image.open(img_path).convert("RGB")
+
+        if self.needs_upscaling(img):
+            logger.info("🔍 Image de faible qualité détectée, upscaling...")
+
+            # Essayer l'upscaling via API d'abord
+            try:
+                return self.upscale_image_esrgan(img_path)
+            except Exception as e:
+                logger.warning(f"Upscaling API échoué, utilisation méthode basique: {e}")
+                return self.upscale_image_basic(img_path)
+        else:
+            logger.info(f"✓ Qualité d'image suffisante ({img.size})")
+            return img_path
 
     def set_model(self):
         url = f"{self.api_url}/sdapi/v1/options"
@@ -282,19 +394,22 @@ class NudifyProcessor:
         return out_path
 
     def process_single_image(self, image_url: str) -> Optional[Path]:
-        """Traite une seule image de A à Z."""
+        """Traite une seule image de A à Z avec upscaling si nécessaire."""
         try:
             # 1. Téléchargement
             img_path = self.download_image(image_url, self.work_dir)
             logger.info(f"Image téléchargée: {img_path}")
 
-            # 2. Génération masque
-            mask_array = self.generate_clothing_mask(img_path)
+            # 2. Prétraitement (upscaling si nécessaire)
+            processed_path = self.preprocess_image(img_path)
+
+            # 3. Génération masque
+            mask_array = self.generate_clothing_mask(processed_path)
             mask_path = self.work_dir / "mask.png"
             cv2.imwrite(str(mask_path), mask_array)
 
-            # 3. Inpainting
-            result_path = self.generate_inpainted_image(img_path, mask_path)
+            # 4. Inpainting
+            result_path = self.generate_inpainted_image(processed_path, mask_path)
 
             return result_path
 
@@ -304,7 +419,7 @@ class NudifyProcessor:
 
     def run_continuous(self, delay: float = 1.0):
         """Boucle infinie de traitement."""
-        #self.set_model()
+        # self.set_model()
 
         while True:
             try:
@@ -329,12 +444,14 @@ class NudifyProcessor:
                     logger.info(f"✓ Succès: {result}")
                     image = open(result, "rb")
                     files = {"image": ("mon_image.jpg", image, "image/png")}
-                    response = requests.post("https://nudify-app.com/api/generation/done", data={'generation_id': generation_id}, files=files)
+                    response = requests.post("https://nudify-app.com/api/generation/done",
+                                             data={'generation_id': generation_id}, files=files)
                     if response.status_code == 200:
                         data = response.json()
                         if data.get("status") is True:
                             logger.info(f"Upload done")
-                        else : logger.error(f"Erreur traitement image {data}")
+                        else:
+                            logger.error(f"Erreur traitement image {data}")
                     else:
                         logger.error(f"Une errreur est survenu lors de l'upload: {response.json()}")
                 else:
@@ -352,10 +469,12 @@ class NudifyProcessor:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Nudify Image Processor")
+    parser = argparse.ArgumentParser(description="Nudify Image Processor with Upscaling")
     parser.add_argument("--api-url", default="http://127.0.0.1:17860", help="URL A1111 API")
     parser.add_argument("--model", default="pornmaster_proSDXLV7-inpainting.safetensors", help="Nom du modèle")
     parser.add_argument("--max-side", type=int, default=1536, help="Côté maximum")
+    parser.add_argument("--min-quality", type=int, default=768, help="Taille minimale pour bonne qualité")
+    parser.add_argument("--upscale-factor", type=int, default=2, choices=[2, 4], help="Facteur d'upscaling")
     parser.add_argument("--delay", type=float, default=1.0, help="Délai entre requêtes (s)")
     parser.add_argument("--single-url", help="URL unique à traiter")
 
@@ -364,7 +483,9 @@ def main():
     processor = NudifyProcessor(
         api_url=args.api_url,
         model_name=args.model,
-        max_side=args.max_side
+        max_side=args.max_side,
+        min_quality_size=args.min_quality,
+        upscale_factor=args.upscale_factor
     )
 
     if args.single_url:
