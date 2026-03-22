@@ -1,44 +1,62 @@
 #!/bin/bash
 
-source /venv/main/bin/activate
-COMFYUI_DIR=${WORKSPACE:-$(pwd)}/ComfyUI
+# =============================================
+# SCRIPT DE PROVISIONING COMFYUI
+# =============================================
+# Ce script ne s'exécute qu'une seule fois.
+# Pour forcer une ré-exécution, supprimer le fichier:
+#   rm /workspace/.provisioning_done
+# =============================================
+
+set -e  # Arrêter en cas d'erreur
+
+WORKSPACE_DIR="${WORKSPACE:-/workspace}"
+COMFYUI_DIR="${WORKSPACE_DIR}/ComfyUI"
 MODELS_DIR="${COMFYUI_DIR}/models"
 NODES_DIR="${COMFYUI_DIR}/custom_nodes"
+PROVISIONING_MARKER="${WORKSPACE_DIR}/.provisioning_done"
+VENV_PATH="/venv/main/bin/activate"
+
+# --- VÉRIFICATION EXÉCUTION PRÉCÉDENTE ---
+if [[ -f "$PROVISIONING_MARKER" ]]; then
+    printf "✅ Provisioning déjà effectué le %s\n" "$(cat "$PROVISIONING_MARKER")"
+    printf "   Pour forcer une ré-exécution: rm %s\n" "$PROVISIONING_MARKER"
+    
+    # Activer le venv et démarrer le script Python si nécessaire
+    if [[ -f "$VENV_PATH" ]]; then
+        source "$VENV_PATH"
+    fi
+    
+    # Vérifier si le script Python tourne déjà
+    if ! pgrep -f "python script.py" > /dev/null 2>&1; then
+        cd "$WORKSPACE_DIR"
+        if [[ -f "script.py" ]]; then
+            nohup python script.py > "${WORKSPACE_DIR}/python.log" 2>&1 &
+            disown
+        fi
+    fi
+    
+    exit 0
+fi
+
+# --- ACTIVATION VENV ---
+if [[ -f "$VENV_PATH" ]]; then
+    source "$VENV_PATH"
+else
+    printf "⚠️ Environnement virtuel non trouvé: %s\n" "$VENV_PATH"
+    printf "   Continuons sans venv...\n"
+fi
 
 # --- CONFIGURATION ---
 
 APT_PACKAGES=(
-    #"package-1"
-    #"package-2"
 )
 
-# Combinaison des packages pip des deux scripts
 PIP_PACKAGES=(
-    "einops"
-    "loguru"
-    "omegaconf"
-    "pandas"
-    "imageio"
-    "nvidia-ml-py"
-    "imageio-ffmpeg"
-    "requests"
 )
 
-# Combinaison des nodes des deux scripts
 NODES=(
-    "https://github.com/snakypex/Comfyui_turbodiffusion_Liro"
-    "https://github.com/kijai/ComfyUI-WanVideoWrapper"
-    "https://github.com/city96/ComfyUI-GGUF"
-    "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite"
-    "https://github.com/Fannovel16/ComfyUI-Frame-Interpolation"
-    "https://github.com/yolain/ComfyUI-Easy-Use"
-    "https://github.com/SeanScripts/ComfyUI-Unload-Model"
-    "https://github.com/snakypex/ComfyUI_node_output_width_height_for_480_p_or_720_p"
-    "https://github.com/princepainter/Comfyui-PainterFLF2V"
 )
-
-# URL du node Snakypex (fichier Python seul)
-SNK_NODE_URL="https://raw.githubusercontent.com/snakypex/ComfyUI_node_output_width_height_for_480_p_or_720_p/refs/heads/main/comfy_ui_node_output_width_height_for_480_p_or_720_p.py"
 
 WORKFLOWS=(
 )
@@ -50,119 +68,92 @@ UNET_MODELS=(
 )
 
 LORA_MODELS=(
+    "https://huggingface.co/snakypex/Flux-9B-All-SaaS/resolve/main/Flux%20Klein%20-%20NSFW%20v2.safetensors"
+    "https://huggingface.co/snakypex/Flux-9B-All-SaaS/resolve/main/nipplediffusion-f2-klein-9b_v3.safetensors"
 )
 
 VAE_MODELS=(
-    "https://huggingface.co/Wan-AI/Wan2.2-I2V-A14B/resolve/main/Wan2.1_VAE.pth"
+    "https://huggingface.co/snakypex/Flux-9B-All-SaaS/resolve/main/flux2-vae.safetensors"
 )
 
 ESRGAN_MODELS=(
-    "https://huggingface.co/ai-forever/Real-ESRGAN/resolve/main/RealESRGAN_x2.pth"
 )
 
 CONTROLNET_MODELS=(
 )
 
-# Modèles spécifiques pour diffusion_models (TurboWan)
 DIFFUSION_MODELS=(
-    "https://huggingface.co/TurboDiffusion/TurboWan2.2-I2V-A14B-720P/resolve/main/TurboWan2.2-I2V-A14B-high-720P-quant.pth"
-    "https://huggingface.co/TurboDiffusion/TurboWan2.2-I2V-A14B-720P/resolve/main/TurboWan2.2-I2V-A14B-low-720P-quant.pth"
+    "https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-fp8/resolve/main/flux-2-klein-9b-fp8.safetensors"
 )
 
-# Modèles CLIP/Text Encoders
 CLIP_MODELS=(
-    "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors"
+    "https://huggingface.co/snakypex/Flux-9B-All-SaaS/resolve/main/qwen_3_8b_fp8mixed.safetensors"
 )
+
+# URL du node Snakypex (définie ici pour éviter erreur variable non définie)
+SNK_NODE_URL="${SNK_NODE_URL:-}"
 
 ### FONCTIONS ###
 
 function provisioning_start() {
-    curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
     provisioning_print_header
-    curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
     provisioning_get_apt_packages
-    curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
     provisioning_get_pip_packages
-    curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
     provisioning_get_nodes
-    curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
     provisioning_get_snk_node
-    curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
     
     # --- TÉLÉCHARGEMENT DES MODÈLES ---
-    # Mode: "parallel" pour téléchargement parallèle, "sequential" pour séquentiel
     local DOWNLOAD_MODE="${DOWNLOAD_MODE:-parallel}"
     
     if [[ "$DOWNLOAD_MODE" == "parallel" ]]; then
         printf "\n🚀 Mode téléchargement PARALLÈLE activé (3 simultanés)\n"
-        curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
-        provisioning_download_parallel "${MODELS_DIR}/checkpoints" "${CHECKPOINT_MODELS[@]}"
-        curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
-        provisioning_download_parallel "${MODELS_DIR}/unet" "${UNET_MODELS[@]}"
-        curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
-        provisioning_download_parallel "${MODELS_DIR}/lora" "${LORA_MODELS[@]}"
-        curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
+        provisioning_download_parallel "${MODELS_DIR}/loras" "${LORA_MODELS[@]}"
         provisioning_download_parallel "${MODELS_DIR}/controlnet" "${CONTROLNET_MODELS[@]}"
-        curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
         provisioning_download_parallel "${MODELS_DIR}/vae" "${VAE_MODELS[@]}"
-        curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
         provisioning_download_parallel "${MODELS_DIR}/upscale_models" "${ESRGAN_MODELS[@]}"
-        curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
         provisioning_download_parallel "${MODELS_DIR}/diffusion_models" "${DIFFUSION_MODELS[@]}"
-        curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
-        provisioning_download_parallel "${MODELS_DIR}/clip" "${CLIP_MODELS[@]}"
-        curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
+        provisioning_download_parallel "${MODELS_DIR}/text_encoders" "${CLIP_MODELS[@]}"
     else
         printf "\n📥 Mode téléchargement SÉQUENTIEL\n"
-        curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
-        provisioning_get_files "${MODELS_DIR}/checkpoints" "${CHECKPOINT_MODELS[@]}"
-        curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
-        provisioning_get_files "${MODELS_DIR}/unet" "${UNET_MODELS[@]}"
-        curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
-        provisioning_get_files "${MODELS_DIR}/lora" "${LORA_MODELS[@]}"
-        curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
+        provisioning_get_files "${MODELS_DIR}/loras" "${LORA_MODELS[@]}"
         provisioning_get_files "${MODELS_DIR}/controlnet" "${CONTROLNET_MODELS[@]}"
-        curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
         provisioning_get_files "${MODELS_DIR}/vae" "${VAE_MODELS[@]}"
-        curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
         provisioning_get_files "${MODELS_DIR}/upscale_models" "${ESRGAN_MODELS[@]}"
-        curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
         provisioning_get_files "${MODELS_DIR}/diffusion_models" "${DIFFUSION_MODELS[@]}"
-        curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
-        provisioning_get_files "${MODELS_DIR}/clip" "${CLIP_MODELS[@]}"
-        curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "last_ping=$(date '+%Y-%m-%d %H:%M:%S')"
+        provisioning_get_files "${MODELS_DIR}/text_encoders" "${CLIP_MODELS[@]}"
     fi
-
-    curl -X POST https://api.liroai.com/v1/instance/update -H "Authorization: Bearer $LIRO_TOKEN" -d "is_active=1" &&
     
     provisioning_print_end
 }
 
 function provisioning_get_apt_packages() {
-    if [[ -n $APT_PACKAGES ]]; then
+    if [[ ${#APT_PACKAGES[@]} -gt 0 ]]; then
         printf "📦 Installation des paquets APT...\n"
-        sudo $APT_INSTALL ${APT_PACKAGES[@]}
+        sudo apt-get update && sudo apt-get install -y "${APT_PACKAGES[@]}"
     fi
 }
 
 function provisioning_get_pip_packages() {
-    if [[ -n $PIP_PACKAGES ]]; then
+    if [[ ${#PIP_PACKAGES[@]} -gt 0 ]]; then
         printf "📦 Installation/Mise à jour des paquets pip: %s\n" "${PIP_PACKAGES[*]}"
-        pip install --no-cache-dir ${PIP_PACKAGES[@]}
+        pip install --no-cache-dir "${PIP_PACKAGES[@]}"
     fi
     
     # Sage Attention - nécessite CUDA toolkit pour compiler
     printf "📦 Installation de SageAttention...\n"
     
-    # Méthode 1: Essayer le package pré-compilé sageattention (plus simple)
+    # Méthode 1: Essayer le package pré-compilé sageattention
     if pip install sageattention 2>/dev/null; then
         printf "✅ SageAttention installé via pip\n"
     else
         # Méthode 2: Compiler depuis source (nécessite CUDA toolkit)
         printf "⚠️ Package pré-compilé non disponible, tentative de compilation...\n"
         if command -v nvcc &> /dev/null; then
-            pip install git+https://github.com/thu-ml/SageAttention.git --no-build-isolation 2>/dev/null || \
-            printf "⚠️ Échec installation SageAttention - continuera sans (optionnel)\n"
+            if pip install git+https://github.com/thu-ml/SageAttention.git --no-build-isolation 2>/dev/null; then
+                printf "✅ SageAttention compilé depuis source\n"
+            else
+                printf "⚠️ Échec installation SageAttention - continuera sans (optionnel)\n"
+            fi
         else
             printf "⚠️ CUDA toolkit (nvcc) non trouvé - SageAttention ignoré (optionnel)\n"
         fi
@@ -170,55 +161,82 @@ function provisioning_get_pip_packages() {
 }
 
 function provisioning_get_nodes() {
+    if [[ ${#NODES[@]} -eq 0 ]]; then
+        printf "\n--- Aucun node à installer ---\n"
+        return 0
+    fi
+    
     printf "\n--- INSTALLATION DES NODES ---\n"
+    mkdir -p "$NODES_DIR"
+    
     for repo in "${NODES[@]}"; do
-        dir="${repo##*/}"
+        local dir="${repo##*/}"
         # Enlever .git si présent
         dir="${dir%.git}"
-        path="${NODES_DIR}/${dir}"
-        requirements="${path}/requirements.txt"
-        if [[ -d $path ]]; then
-            if [[ ${AUTO_UPDATE,,} != "false" ]]; then
+        local path="${NODES_DIR}/${dir}"
+        local requirements="${path}/requirements.txt"
+        
+        if [[ -d "$path" ]]; then
+            if [[ "${AUTO_UPDATE,,}" != "false" ]]; then
                 printf "🔄 Mise à jour du node: %s...\n" "${repo}"
-                ( cd "$path" && git pull )
-                if [[ -e $requirements ]]; then
+                ( cd "$path" && git pull ) || printf "⚠️ Échec mise à jour: %s\n" "$dir"
+                if [[ -f "$requirements" ]]; then
                     printf "🔎 Requirements trouvés pour %s\n" "${dir}"
-                    pip install --no-cache-dir -r "$requirements"
+                    pip install --no-cache-dir -r "$requirements" || printf "⚠️ Échec installation requirements: %s\n" "$dir"
                 fi
             fi
         else
             printf "📥 Téléchargement du node: %s...\n" "${repo}"
-            git clone "${repo}" "${path}" --recursive
-            if [[ -e $requirements ]]; then
-                printf "🔎 Requirements trouvés pour %s\n" "${dir}"
-                pip install --no-cache-dir -r "${requirements}"
+            if git clone "${repo}" "${path}" --recursive; then
+                if [[ -f "$requirements" ]]; then
+                    printf "🔎 Requirements trouvés pour %s\n" "${dir}"
+                    pip install --no-cache-dir -r "${requirements}" || printf "⚠️ Échec installation requirements: %s\n" "$dir"
+                fi
+            else
+                printf "⚠️ Échec clonage: %s\n" "$repo"
             fi
         fi
     done
 }
 
 function provisioning_get_snk_node() {
-    # Télécharger le fichier Python du node Snakypex séparément
+    # Vérifier si l'URL est définie
+    if [[ -z "$SNK_NODE_URL" ]]; then
+        printf "ℹ️ SNK_NODE_URL non définie, node Snakypex ignoré\n"
+        return 0
+    fi
+    
+    mkdir -p "$NODES_DIR"
     local snk_path="${NODES_DIR}/comfy_ui_res_node.py"
+    
     if [[ ! -f "$snk_path" ]]; then
         printf "📥 Téléchargement du node Snakypex (fichier Python)...\n"
-        curl -L -o "$snk_path" "$SNK_NODE_URL"
-        printf "✨ Node Snakypex téléchargé\n"
+        if curl -fsSL -o "$snk_path" "$SNK_NODE_URL"; then
+            printf "✨ Node Snakypex téléchargé\n"
+        else
+            printf "⚠️ Échec téléchargement node Snakypex\n"
+        fi
     else
         printf "✅ Node Snakypex déjà présent\n"
     fi
 }
 
 function provisioning_get_files() {
-    if [[ -z $2 ]]; then return 1; fi
-    
-    dir="$1"
-    mkdir -p "$dir"
+    local dir="$1"
     shift
-    arr=("$@")
+    local arr=("$@")
+    
+    if [[ ${#arr[@]} -eq 0 ]]; then
+        return 0
+    fi
+    
+    mkdir -p "$dir"
     printf "\n📥 Téléchargement de %s modèle(s) vers %s...\n" "${#arr[@]}" "$dir"
+    
     for url in "${arr[@]}"; do
-        local filename="${url##*/}"
+        # Décoder le nom de fichier (URL encoded)
+        local filename
+        filename=$(basename "$url" | sed 's/%20/ /g' | sed 's/%2B/+/g')
         local filepath="${dir}/${filename}"
         
         # Vérifier si le fichier existe déjà
@@ -228,8 +246,11 @@ function provisioning_get_files() {
         fi
         
         printf "📥 Téléchargement: %s\n" "${filename}"
-        provisioning_download "${url}" "${dir}"
-        printf "✨ Terminé: %s\n" "${filename}"
+        if provisioning_download "${url}" "${dir}"; then
+            printf "✨ Terminé: %s\n" "${filename}"
+        else
+            printf "⚠️ Échec: %s\n" "${filename}"
+        fi
     done
 }
 
@@ -251,48 +272,44 @@ function provisioning_print_end() {
 
 function provisioning_has_valid_hf_token() {
     [[ -n "$HF_TOKEN" ]] || return 1
-    url="https://huggingface.co/api/whoami-v2"
-
+    
+    local url="https://huggingface.co/api/whoami-v2"
+    local response
     response=$(curl -o /dev/null -s -w "%{http_code}" -X GET "$url" \
         -H "Authorization: Bearer $HF_TOKEN" \
         -H "Content-Type: application/json")
 
-    if [ "$response" -eq 200 ]; then
-        return 0
-    else
-        return 1
-    fi
+    [[ "$response" -eq 200 ]]
 }
 
 function provisioning_has_valid_civitai_token() {
     [[ -n "$CIVITAI_TOKEN" ]] || return 1
-    url="https://civitai.com/api/v1/models?hidden=1&limit=1"
-
+    
+    local url="https://civitai.com/api/v1/models?hidden=1&limit=1"
+    local response
     response=$(curl -o /dev/null -s -w "%{http_code}" -X GET "$url" \
         -H "Authorization: Bearer $CIVITAI_TOKEN" \
         -H "Content-Type: application/json")
 
-    if [ "$response" -eq 200 ]; then
-        return 0
-    else
-        return 1
-    fi
+    [[ "$response" -eq 200 ]]
 }
 
 # Download from $1 URL to $2 directory
 function provisioning_download() {
-    local auth_token=""
+    local url="$1"
+    local dir="$2"
+    local auth_header=""
     
-    if [[ -n $HF_TOKEN && $1 =~ ^https://([a-zA-Z0-9_-]+\.)?huggingface\.co(/|$|\?) ]]; then
-        auth_token="$HF_TOKEN"
-    elif [[ -n $CIVITAI_TOKEN && $1 =~ ^https://([a-zA-Z0-9_-]+\.)?civitai\.com(/|$|\?) ]]; then
-        auth_token="$CIVITAI_TOKEN"
+    if [[ -n "$HF_TOKEN" && "$url" =~ ^https://([a-zA-Z0-9_-]+\.)?huggingface\.co(/|$|\?) ]]; then
+        auth_header="--header=Authorization: Bearer $HF_TOKEN"
+    elif [[ -n "$CIVITAI_TOKEN" && "$url" =~ ^https://([a-zA-Z0-9_-]+\.)?civitai\.com(/|$|\?) ]]; then
+        auth_header="--header=Authorization: Bearer $CIVITAI_TOKEN"
     fi
     
-    if [[ -n $auth_token ]]; then
-        wget --header="Authorization: Bearer $auth_token" -qnc --content-disposition --show-progress -e dotbytes="${3:-4M}" -P "$2" "$1"
+    if [[ -n "$auth_header" ]]; then
+        wget "$auth_header" -qnc --content-disposition --show-progress -e dotbytes="${3:-4M}" -P "$dir" "$url"
     else
-        wget -qnc --content-disposition --show-progress -e dotbytes="${3:-4M}" -P "$2" "$1"
+        wget -qnc --content-disposition --show-progress -e dotbytes="${3:-4M}" -P "$dir" "$url"
     fi
 }
 
@@ -302,19 +319,22 @@ function provisioning_download_parallel() {
     shift
     local urls=("$@")
     
-    if [[ ${#urls[@]} -eq 0 ]]; then return 1; fi
+    if [[ ${#urls[@]} -eq 0 ]]; then
+        return 0
+    fi
     
     mkdir -p "$dir"
     printf "📥 Téléchargement parallèle de %s fichier(s) vers %s...\n" "${#urls[@]}" "$dir"
     
-    # Exporter les tokens pour les sous-processus
-    export HF_TOKEN CIVITAI_TOKEN
+    # Exporter les tokens et variables pour les sous-processus
+    export HF_TOKEN CIVITAI_TOKEN dir
     
     # Utiliser xargs pour paralléliser (3 téléchargements simultanés)
     printf '%s\n' "${urls[@]}" | xargs -P 3 -I {} bash -c '
         url="{}"
-        filename="${url##*/}"
-        filepath="'"$dir"'/${filename}"
+        # Décoder le nom de fichier
+        filename=$(basename "$url" | sed "s/%20/ /g" | sed "s/%2B/+/g")
+        filepath="${dir}/${filename}"
         
         if [[ -f "$filepath" ]]; then
             echo "✅ Déjà présent: ${filename}"
@@ -331,30 +351,66 @@ function provisioning_download_parallel() {
         
         echo "📥 Téléchargement: ${filename}"
         if [[ -n "$auth_header" ]]; then
-            wget "$auth_header" -qnc --content-disposition --show-progress -e dotbytes=4M -P "'"$dir"'" "$url"
+            wget "$auth_header" -qnc --content-disposition --show-progress -e dotbytes=4M -P "$dir" "$url" 2>/dev/null
         else
-            wget -qnc --content-disposition --show-progress -e dotbytes=4M -P "'"$dir"'" "$url"
+            wget -qnc --content-disposition --show-progress -e dotbytes=4M -P "$dir" "$url" 2>/dev/null
         fi
-        echo "✨ Terminé: ${filename}"
+        
+        if [[ $? -eq 0 ]]; then
+            echo "✨ Terminé: ${filename}"
+        else
+            echo "⚠️ Échec: ${filename}"
+        fi
     '
 }
 
 ### MAIN ###
 
+# Créer le workspace si nécessaire
+mkdir -p "$WORKSPACE_DIR"
+
 # Permettre à l'utilisateur de désactiver le provisioning
-if [[ ! -f /.noprovisioning ]]; then
-    provisioning_start
+if [[ -f "/.noprovisioning" ]]; then
+    printf "⏭️ Provisioning désactivé (fichier /.noprovisioning présent)\n"
+    exit 0
 fi
 
-source /venv/main/bin/activate
+# Exécuter le provisioning
+provisioning_start
 
-cd /workspace/
-wget -O script.py "https://raw.githubusercontent.com/snakypex/liroai/refs/heads/main/comfyui_api_script.py"
+# Marquer le provisioning comme terminé avec timestamp
+date "+%Y-%m-%d %H:%M:%S" > "$PROVISIONING_MARKER"
+printf "✅ Marqueur de provisioning créé: %s\n" "$PROVISIONING_MARKER"
 
-wget -O workflow.txt "https://raw.githubusercontent.com/snakypex/liroai/refs/heads/main/turbowan_workflow_api.txt"
+# Créer le fichier finish.finish
+touch "${WORKSPACE_DIR}/finish.finish"
 
-touch finish.finish
+# Télécharger les scripts nécessaires
+cd "$WORKSPACE_DIR"
 
-nohup python script.py >/workspace/python.log 2>&1 &
-disown
+printf "📥 Téléchargement du script Python...\n"
+if wget -qO script.py "https://raw.githubusercontent.com/snakypex/liroai/refs/heads/main/comfyui_api_script.py"; then
+    printf "✅ script.py téléchargé\n"
+else
+    printf "⚠️ Échec téléchargement script.py\n"
+fi
+
+printf "📥 Téléchargement du workflow...\n"
+if wget -qO workflow.txt "https://raw.githubusercontent.com/snakypex/liroai/refs/heads/main/turbowan_workflow_api.txt"; then
+    printf "✅ workflow.txt téléchargé\n"
+else
+    printf "⚠️ Échec téléchargement workflow.txt\n"
+fi
+
+# Démarrer le script Python en arrière-plan
+if [[ -f "script.py" ]]; then
+    printf "🚀 Démarrage du script Python en arrière-plan...\n"
+    nohup python script.py > "${WORKSPACE_DIR}/python.log" 2>&1 &
+    disown
+    printf "✅ Script Python démarré (PID: $!)\n"
+else
+    printf "⚠️ script.py non trouvé, impossible de démarrer\n"
+fi
+
+printf "\n🎉 Provisioning terminé avec succès!\n"
 exit 0
