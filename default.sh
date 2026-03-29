@@ -378,39 +378,20 @@ fi
 # Exécuter le provisioning
 provisioning_start
 
+# Télécharger les scripts nécessaires
+cd "$WORKSPACE_DIR"
+
+cd ComfyUI
+git checkout master
+git pull
+pip install -r requirements.txt
+
 # Marquer le provisioning comme terminé avec timestamp
 date "+%Y-%m-%d %H:%M:%S" > "$PROVISIONING_MARKER"
 printf "✅ Marqueur de provisioning créé: %s\n" "$PROVISIONING_MARKER"
 
 # Créer le fichier finish.finish
 touch "${WORKSPACE_DIR}/finish.finish"
-
-# Télécharger les scripts nécessaires
-cd "$WORKSPACE_DIR"
-
-printf "📥 Téléchargement du script Python...\n"
-if wget -qO script.py "https://raw.githubusercontent.com/snakypex/liroai/refs/heads/main/comfyui_api_script.py"; then
-    printf "✅ script.py téléchargé\n"
-else
-    printf "⚠️ Échec téléchargement script.py\n"
-fi
-
-printf "📥 Téléchargement du workflow...\n"
-if wget -qO workflow.txt "https://raw.githubusercontent.com/snakypex/liroai/refs/heads/main/turbowan_workflow_api.txt"; then
-    printf "✅ workflow.txt téléchargé\n"
-else
-    printf "⚠️ Échec téléchargement workflow.txt\n"
-fi
-
-# Démarrer le script Python en arrière-plan
-if [[ -f "script.py" ]]; then
-    printf "🚀 Démarrage du script Python en arrière-plan...\n"
-    nohup python script.py > "${WORKSPACE_DIR}/python.log" 2>&1 &
-    disown
-    printf "✅ Script Python démarré (PID: $!)\n"
-else
-    printf "⚠️ script.py non trouvé, impossible de démarrer\n"
-fi
 
 printf "\n🎉 Provisioning terminé avec succès!\n"
 exit 0
