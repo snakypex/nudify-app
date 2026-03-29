@@ -68,7 +68,7 @@ UNET_MODELS=(
 )
 
 LORA_MODELS=(
-    "https://huggingface.co/snakypex/Flux-9B-All-SaaS/resolve/main/Flux%20Klein%20-%20NSFW%20v2.safetensors"
+    "https://huggingface.co/snakypex/Flux-9B-All-SaaS/resolve/main/FluxKlein-NSFWv2.safetensors"
     "https://huggingface.co/snakypex/Flux-9B-All-SaaS/resolve/main/nipplediffusion-f2-klein-9b_v3.safetensors"
 )
 
